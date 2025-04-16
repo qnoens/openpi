@@ -34,6 +34,9 @@ git clone --recurse-submodules git@github.com:Physical-Intelligence/openpi.git
 git submodule update --init --recursive
 ```
 
+Make sure to deactivate conda!.
+
+
 We use [uv](https://docs.astral.sh/uv/) to manage Python dependencies. See the [uv installation instructions](https://docs.astral.sh/uv/getting-started/installation/) to set it up. Once uv is installed, run the following to set up the environment:
 
 ```bash
@@ -141,6 +144,11 @@ Before we can run training, we need to compute the normalization statistics for 
 uv run scripts/compute_norm_stats.py --config-name pi0_fast_libero
 ```
 
+If you have multiple GPUS, make sure to only use a single GPU to avoid sharding in the dataloader:
+```
+CUDA_VISIBLE_DEVICES=0, uv run scripts/compute_norm_stats.py --config-name pi0_fast_libero
+
+```
 Now we can kick off training with the following command (the `--overwrite` flag is used to overwrite existing checkpoints if you rerun fine-tuning with the same config):
 
 ```bash
