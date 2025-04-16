@@ -20,6 +20,7 @@ import openpi.models.tokenizer as _tokenizer
 import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.droid_policy as droid_policy
 import openpi.policies.libero_policy as libero_policy
+import openpi.policies.ur5_policy as ur5_policy
 import openpi.shared.download as _download
 import openpi.shared.normalize as _normalize
 import openpi.training.optimizer as _optimizer
@@ -256,7 +257,6 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
     For your own dataset, you can copy this class and modify the transforms to match your dataset based on the
     comments below.
     """
-
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
         # The repack transform is *only* applied to the data coming from the dataset,
@@ -321,6 +321,64 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
             data_transforms=data_transforms,
             model_transforms=model_transforms,
         )
+
+
+
+@dataclasses.dataclass(frozen=True)
+class LeRobotUR5DataConfig(DataConfigFactory):
+    # Action keys that will be used to read the action sequence from the dataset.
+    action_sequence_keys = ("action",)
+    default_prompt: str | None = None
+
+    @override
+    def create(self, assets_dirs, model_config):
+
+        # used to map dataset observation dicts to 'env' observation dicts.
+        repack_transform = _transforms.Group(
+            inputs=[
+                # these values are the keys that are available in the 'make_example' from the policy Input.
+                # they are the keys that the model.select_action expects.
+
+                # the keys of this dict are the keys that are available in the dataset.__getitem__()
+
+                _transforms.RepackTransform(
+                    {
+                        "scene_image":  "observation.images.scene_image",
+                        "wrist_image": "observation.images.wrist_image",
+                        "state": "observation.state",
+                        "actions": "action",
+
+                    })]
+        )
+
+
+
+        data_transforms = _transforms.Group(
+            inputs=[ur5_policy.UR5Inputs(action_dim=model_config.action_dim, model_type=model_config.model_type)],
+            outputs=[ur5_policy.UR5Outputs()],
+        )
+
+        # TODO(karl): comment this out once we have updated the Libero checkpoints to not use
+        # the delta action transform
+        delta_action_mask = _transforms.make_bool_mask(6, -1)
+        data_transforms = data_transforms.push(
+            inputs=[_transforms.DeltaActions(delta_action_mask)],
+            outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+        )
+
+        # Model transforms include things like tokenizing the prompt and action targets
+        # You do not need to change anything here for your own dataset.
+        model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
+
+        # We return all data transforms for training and inference. No need to change anything here.
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs),
+            repack_transforms=repack_transform,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+            action_sequence_keys=self.action_sequence_keys,
+        )
+
 
 
 @dataclasses.dataclass(frozen=True)
@@ -469,6 +527,28 @@ _CONFIGS = [
                 prompt_from_task=True,
             ),
         ),
+    ),
+
+    TrainConfig(
+        name="pi0_ur5_pick_cube_joints",
+        model=pi0.Pi0Config(paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"),
+        data=LeRobotUR5DataConfig(
+            repo_id="tlpss/ur5e-pick-red-cube-joints",
+            base_config=DataConfig(
+                local_files_only=False,  # Set to True for local-only datasets.
+                prompt_from_task=False,
+            ),
+            # TODO: this is a temp hack because of a mismatch of the task_index and task.jsonl in the dataset. 
+            # remove once the dataset is fixed.
+            default_prompt = "pick up the red cube and place it on the blue square"
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("s3://openpi-assets/checkpoints/pi0_base/params"),
+        num_train_steps=20_000,
+        freeze_filter=pi0.Pi0Config(
+            paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"
+        ).get_freeze_filter(),
+        # Turn off EMA for LoRA finetuning.
+        ema_decay=None,
     ),
     #
     # Fine-tuning Libero configs.
