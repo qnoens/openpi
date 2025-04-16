@@ -56,7 +56,7 @@ def main(config_name: str, max_frames: int | None = None):
         num_batches=num_frames,
     )
 
-    keys = ["state", "actions"]
+    keys = ["state", "action"]
     print(next(iter(data_loader)).keys())
     stats = {key: normalize.RunningStats() for key in keys}
 
