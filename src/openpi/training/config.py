@@ -379,6 +379,61 @@ class LeRobotUR5DataConfig(DataConfigFactory):
             action_sequence_keys=self.action_sequence_keys,
         )
 
+@dataclasses.dataclass(frozen=True)
+class LeRobotUR3QuintenDataConfig(DataConfigFactory):
+    # Action keys that will be used to read the action sequence from the dataset.
+    action_sequence_keys = ("action",)
+    default_prompt: str | None = None
+
+    @override
+    def create(self, assets_dirs, model_config):
+
+        # used to map dataset observation dicts to 'env' observation dicts.
+        repack_transform = _transforms.Group(
+            inputs=[
+                # these values are the keys that are available in the 'make_example' from the policy Input.
+                # they are the keys that the model.select_action expects.
+
+                # the keys of this dict are the keys that are available in the dataset.__getitem__()
+
+                _transforms.RepackTransform(
+                    {
+                        "scene_image":  "scene_image",
+                        "wrist_image": "wrist_image",
+                        "state": "state",
+                        "actions": "action",
+                        "prompt" :"prompt"
+
+                    })]
+        )
+
+
+
+        data_transforms = _transforms.Group(
+            inputs=[ur5_policy.UR5Inputs(action_dim=model_config.action_dim, model_type=model_config.model_type)],
+            outputs=[ur5_policy.UR5Outputs()],
+        )
+
+        # TODO(karl): comment this out once we have updated the Libero checkpoints to not use
+        # the delta action transform
+        delta_action_mask = _transforms.make_bool_mask(6, -1)
+        data_transforms = data_transforms.push(
+            inputs=[_transforms.DeltaActions(delta_action_mask)],
+            outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+        )
+
+        # Model transforms include things like tokenizing the prompt and action targets
+        # You do not need to change anything here for your own dataset.
+        model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
+
+        # We return all data transforms for training and inference. No need to change anything here.
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs),
+            repack_transforms=repack_transform,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+            action_sequence_keys=self.action_sequence_keys,
+        )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -547,6 +602,136 @@ _CONFIGS = [
         save_interval=1000,
         freeze_filter=pi0.Pi0Config(
             paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"
+        ).get_freeze_filter(),
+        # Turn off EMA for LoRA finetuning.
+        ema_decay=None,
+    ), 
+
+    TrainConfig(
+        name="pi0_ur3_pick_cube_quinten_joints",
+        model=pi0.Pi0Config(paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"),
+        data=LeRobotUR3QuintenDataConfig(
+            repo_id="qnoens/block2blue",
+            base_config=DataConfig(
+                local_files_only=False,  # Set to True for local-only datasets.
+                prompt_from_task=True,
+            ),
+
+            default_prompt = "move the block to the blue rectangle"
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("s3://openpi-assets/checkpoints/pi0_base/params"),
+        num_train_steps=10_000,
+        save_interval=5000,
+        freeze_filter=pi0.Pi0Config(
+            paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"
+        ).get_freeze_filter(),
+        # Turn off EMA for LoRA finetuning.
+        ema_decay=None,
+    ),      
+        TrainConfig(
+        name="pi0_fast_ur3_pick_cube_quinten_joints",
+        # Here is an example of loading a pi0-FAST model for LoRA finetuning.
+        # For setting action_dim, action_horizon, and max_token_len, see the comments above.
+        model=pi0_fast.Pi0FASTConfig(
+            action_dim=7, action_horizon=10, max_token_len=150, paligemma_variant="gemma_2b_lora"
+        ),
+        data=LeRobotUR3QuintenDataConfig(
+            repo_id="qnoens/block2blue",
+            base_config=DataConfig(
+                local_files_only=False,  # Set to True for local-only datasets.
+                prompt_from_task=True,
+            ),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("s3://openpi-assets/checkpoints/pi0_fast_base/params"),
+        num_train_steps=10_000,
+        batch_size=8,
+
+        # Again, make sure to match the model config above when extracting the freeze filter
+        # that specifies which parameters should be frozen during LoRA finetuning.
+        freeze_filter=pi0_fast.Pi0FASTConfig(
+            action_dim=7, action_horizon=10, max_token_len=150, paligemma_variant="gemma_2b_lora"
+        ).get_freeze_filter(),
+        # Turn off EMA for LoRA finetuning.
+        ema_decay=None,
+    ),
+    TrainConfig(
+        name="pi0_fast_ur5_pick_cube_joints",
+        # Here is an example of loading a pi0-FAST model for LoRA finetuning.
+        # For setting action_dim, action_horizon, and max_token_len, see the comments above.
+        model=pi0_fast.Pi0FASTConfig(
+            action_dim=7, action_horizon=10, max_token_len=150, paligemma_variant="gemma_2b_lora"
+        ),
+        data=LeRobotUR5DataConfig(
+            repo_id="tlpss/ur5e-pick-red-cube-joints",
+            base_config=DataConfig(
+                local_files_only=False,  # Set to True for local-only datasets.
+                prompt_from_task=False,
+            ),
+            # TODO: this is a temp hack because of a mismatch of the task_index and task.jsonl in the dataset. 
+            # remove once the dataset is fixed.
+            default_prompt = "pick up the red cube and place it on the blue square"
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("s3://openpi-assets/checkpoints/pi0_fast_base/params"),
+        num_train_steps=10_000,
+        batch_size=8,
+
+        # Again, make sure to match the model config above when extracting the freeze filter
+        # that specifies which parameters should be frozen during LoRA finetuning.
+        freeze_filter=pi0_fast.Pi0FASTConfig(
+            action_dim=7, action_horizon=10, max_token_len=150, paligemma_variant="gemma_2b_lora"
+        ).get_freeze_filter(),
+        # Turn off EMA for LoRA finetuning.
+        ema_decay=None,
+    ),
+
+    TrainConfig(
+        name="pi0_ur5_put_cb_din",
+        model=pi0.Pi0Config(paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"),
+        data=LeRobotUR5DataConfig(
+            repo_id="tlpss/ur5e-put-cb-on-din-joints",
+            base_config=DataConfig(
+                local_files_only=False,  # Set to True for local-only datasets.
+                prompt_from_task=False,
+            ),
+            # TODO: this is a temp hack because of a mismatch of the task_index and task.jsonl in the dataset. 
+            # remove once the dataset is fixed.
+            default_prompt = "put the circuit breaker on the DIN rail"
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("s3://openpi-assets/checkpoints/pi0_base/params"),
+        num_train_steps=10_000,
+        save_interval=1000,
+        freeze_filter=pi0.Pi0Config(
+            paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"
+        ).get_freeze_filter(),
+        # Turn off EMA for LoRA finetuning.
+        ema_decay=None,
+    ),
+
+    TrainConfig(
+        name="pi0_fast_ur5_put_cb_din_joints",
+        # Here is an example of loading a pi0-FAST model for LoRA finetuning.
+        # For setting action_dim, action_horizon, and max_token_len, see the comments above.
+        model=pi0_fast.Pi0FASTConfig(
+            action_dim=7, action_horizon=10, max_token_len=150, paligemma_variant="gemma_2b_lora"
+        ),
+        data=LeRobotUR5DataConfig(
+            repo_id="tlpss/ur5e-put-cb-on-din-joints",
+            base_config=DataConfig(
+                local_files_only=False,  # Set to True for local-only datasets.
+                prompt_from_task=False,
+            ),
+            # TODO: this is a temp hack because of a mismatch of the task_index and task.jsonl in the dataset. 
+            # remove once the dataset is fixed.
+            default_prompt = "put the circuit breaker on the DIN rail"
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("s3://openpi-assets/checkpoints/pi0_fast_base/params"),
+        num_train_steps=20_000,
+        batch_size=8,
+        
+        # Again, make sure to match the model config above when extracting the freeze filter
+        # that specifies which parameters should be frozen during LoRA finetuning.
+        freeze_filter=pi0_fast.Pi0FASTConfig(
+            action_dim=7, action_horizon=10, max_token_len=150, paligemma_variant="gemma_2b_lora"
         ).get_freeze_filter(),
         # Turn off EMA for LoRA finetuning.
         ema_decay=None,
