@@ -608,16 +608,14 @@ _CONFIGS = [
     ), 
 
     TrainConfig(
-        name="pi0_ur3_pick_cube_quinten_joints",
+        name="pi0_ur3_attach_cb_v2_joints",
         model=pi0.Pi0Config(paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"),
         data=LeRobotUR3QuintenDataConfig(
-            repo_id="qnoens/block2blue",
+            repo_id="qnoens/attach_cb",
             base_config=DataConfig(
                 local_files_only=False,  # Set to True for local-only datasets.
                 prompt_from_task=True,
             ),
-
-            default_prompt = "move the block to the blue rectangle"
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader("s3://openpi-assets/checkpoints/pi0_base/params"),
         num_train_steps=10_000,
@@ -629,21 +627,21 @@ _CONFIGS = [
         ema_decay=None,
     ),      
         TrainConfig(
-        name="pi0_fast_ur3_pick_cube_quinten_joints",
+        name="pi0_fast_ur3_clean_table_joints",
         # Here is an example of loading a pi0-FAST model for LoRA finetuning.
         # For setting action_dim, action_horizon, and max_token_len, see the comments above.
         model=pi0_fast.Pi0FASTConfig(
             action_dim=7, action_horizon=10, max_token_len=150, paligemma_variant="gemma_2b_lora"
         ),
         data=LeRobotUR3QuintenDataConfig(
-            repo_id="qnoens/block2blue",
+            repo_id="qnoens/clean_table",
             base_config=DataConfig(
                 local_files_only=False,  # Set to True for local-only datasets.
                 prompt_from_task=True,
             ),
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader("s3://openpi-assets/checkpoints/pi0_fast_base/params"),
-        num_train_steps=10_000,
+        num_train_steps=20_000,
         batch_size=8,
 
         # Again, make sure to match the model config above when extracting the freeze filter
@@ -732,57 +730,6 @@ _CONFIGS = [
         # that specifies which parameters should be frozen during LoRA finetuning.
         freeze_filter=pi0_fast.Pi0FASTConfig(
             action_dim=7, action_horizon=10, max_token_len=150, paligemma_variant="gemma_2b_lora"
-        ).get_freeze_filter(),
-        # Turn off EMA for LoRA finetuning.
-        ema_decay=None,
-    ),
-    TrainConfig(
-        name="pi0_fast_ur5_pour_cup_joints",
-        # Here is an example of loading a pi0-FAST model for LoRA finetuning.
-        # For setting action_dim, action_horizon, and max_token_len, see the comments above.
-        model=pi0_fast.Pi0FASTConfig(
-            action_dim=7, action_horizon=10, max_token_len=100, paligemma_variant="gemma_2b_lora"
-        ),
-        data=LeRobotUR5DataConfig(
-            repo_id="tlpss/ur5e-pour-cup-joints",
-            base_config=DataConfig(
-                local_files_only=False,  # Set to True for local-only datasets.
-                prompt_from_task=False,
-            ),
-            # TODO: this is a temp hack because of a mismatch of the task_index and task.jsonl in the dataset. 
-            # remove once the dataset is fixed.
-            default_prompt = "pour the white mug in the transparent cup"
-        ),
-        weight_loader=weight_loaders.CheckpointWeightLoader("s3://openpi-assets/checkpoints/pi0_fast_base/params"),
-        num_train_steps=20_000,
-        batch_size=8,
-        
-        # Again, make sure to match the model config above when extracting the freeze filter
-        # that specifies which parameters should be frozen during LoRA finetuning.
-        freeze_filter=pi0_fast.Pi0FASTConfig(
-            action_dim=7, action_horizon=10, max_token_len=150, paligemma_variant="gemma_2b_lora"
-        ).get_freeze_filter(),
-        # Turn off EMA for LoRA finetuning.
-        ema_decay=None,
-    ),
-    TrainConfig(
-        name="pi0_ur5_pour_cup_joints",
-        model=pi0.Pi0Config(paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"),
-        data=LeRobotUR5DataConfig(
-            repo_id="tlpss/ur5e-pour-cup-joints",
-            base_config=DataConfig(
-                local_files_only=False,  # Set to True for local-only datasets.
-                prompt_from_task=False,
-            ),
-            # TODO: this is a temp hack because of a mismatch of the task_index and task.jsonl in the dataset. 
-            # remove once the dataset is fixed.
-            default_prompt = "pour the white mug in the transparent cup"
-        ),
-        weight_loader=weight_loaders.CheckpointWeightLoader("s3://openpi-assets/checkpoints/pi0_base/params"),
-        num_train_steps=10_000,
-        save_interval=5000,
-        freeze_filter=pi0.Pi0Config(
-            paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"
         ).get_freeze_filter(),
         # Turn off EMA for LoRA finetuning.
         ema_decay=None,
